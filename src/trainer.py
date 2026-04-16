@@ -2,7 +2,7 @@ import os
 import torch
 from tqdm import tqdm
 
-from losses import combined_loss, iou_score, boundary_iou
+from src.losses import combined_loss, iou_score, boundary_iou
 
 
 class Trainer:
