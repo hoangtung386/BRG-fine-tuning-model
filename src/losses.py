@@ -12,14 +12,42 @@ def bce_loss(pred, target):
     return F.binary_cross_entropy_with_logits(pred, target)
 
 
-def combined_loss(pred, target, dice_weight=0.5, bce_weight=0.5):
-    dice = dice_loss(pred, target)
+def ssim_loss(pred, target, window_size=11):
+    from pytorch_msssim import ssim
+
+    pred = torch.sigmoid(pred)
+    return 1 - ssim(pred, target, window_size=window_size, size_average=True)
+
+
+def combined_loss(pred, target, ssim_weight=10, bce_weight=90, iou_weight=0.25):
+    ssim = ssim_loss(pred, target)
     bce = bce_loss(pred, target)
-    return dice_weight * dice + bce_weight * bce
+    iou = 1 - iou_score(pred, target)
+    return ssim_weight * ssim + bce_weight * bce + iou_weight * iou
 
 
 def iou_score(pred, target, threshold=0.5):
     pred = (torch.sigmoid(pred) > threshold).float()
     intersection = (pred * target).sum()
     union = pred.sum() + target.sum() - intersection
+    return (intersection + 1e-6) / (union + 1e-6)
+
+
+def boundary_iou(pred, target, boundary_width=5, threshold=0.5):
+    pred = (torch.sigmoid(pred) > threshold).float()
+
+    kernel = torch.ones(1, 1, boundary_width, boundary_width, device=pred.device)
+
+    pred_dilated = F.conv2d(pred, kernel, padding=boundary_width // 2) > 0
+    target_dilated = F.conv2d(target, kernel, padding=boundary_width // 2) > 0
+
+    pred_boundary = pred_dilated & ~pred
+    target_boundary = target_dilated & ~target
+
+    pred_boundary = pred_boundary.float()
+    target_boundary = target_boundary.float()
+
+    intersection = (pred_boundary * target_boundary).sum()
+    union = pred_boundary.sum() + target_boundary.sum() - intersection
+
     return (intersection + 1e-6) / (union + 1e-6)

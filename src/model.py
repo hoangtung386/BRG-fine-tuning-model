@@ -2,10 +2,16 @@ import torch
 from transformers import AutoModelForImageSegmentation
 
 
-def load_model(model_name="briaai/RMBG-2.0", device="cuda"):
+def load_model(
+    model_name="briaai/RMBG-2.0", device="cuda", use_gradient_checkpointing=False
+):
     model = AutoModelForImageSegmentation.from_pretrained(
         model_name, trust_remote_code=True
     )
+
+    if use_gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
+        model.gradient_checkpointing_enable()
+
     model = model.to(device)
     return model
 
@@ -15,5 +21,20 @@ def unfreeze_all_params(model):
         param.requires_grad = True
 
 
-def create_optimizer(model, lr=2e-5, weight_decay=0.01):
-    return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+def create_optimizer(model, lr_decoder=2e-5, lr_encoder=5e-6, weight_decay=0.01):
+    encoder_params = []
+    decoder_params = []
+
+    for name, param in model.named_parameters():
+        if "encoder" in name.lower():
+            encoder_params.append(param)
+        else:
+            decoder_params.append(param)
+
+    return torch.optim.AdamW(
+        [
+            {"params": encoder_params, "lr": lr_encoder},
+            {"params": decoder_params, "lr": lr_decoder},
+        ],
+        weight_decay=weight_decay,
+    )
