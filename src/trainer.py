@@ -6,22 +6,33 @@ from src.losses import combined_loss, iou_score, boundary_iou
 
 
 def _get_valid_pred(output):
-    """Extract valid tensor from model output"""
-    print(f"DEBUG _get_valid_pred: type={type(output)}")
+    """Extract valid tensor from model output - handles complex nested structures"""
+    print(f"DEBUG _get_valid_pred: type={type(output)}, is None={output is None}")
+
     if output is None:
         raise ValueError("Model output is None")
-    if isinstance(output, (list, tuple)):
-        print(f"DEBUG: output is list with len={len(output)}")
-        for i, p in enumerate(output):
-            print(f"DEBUG: output[{i}] = {type(p)}, is None={p is None}")
-        for p in reversed(output):
-            if p is not None and isinstance(p, torch.Tensor):
-                print(f"DEBUG: found valid tensor at reversed index, shape={p.shape}")
-                return p
+
+    def find_tensor(obj):
+        """Recursively find first valid tensor"""
+        if obj is None:
+            return None
+        if isinstance(obj, torch.Tensor):
+            return obj
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                result = find_tensor(item)
+                if result is not None:
+                    return result
+        return None
+
+    pred = find_tensor(output)
+
+    if pred is None:
+        print(f"DEBUG: Could not find any tensor in output structure")
         raise ValueError("No valid tensor in model output")
-    if not isinstance(output, torch.Tensor):
-        raise ValueError(f"Model output is not a tensor: {type(output)}")
-    return output
+
+    print(f"DEBUG: Found tensor with shape: {pred.shape}")
+    return pred
 
 
 class Trainer:
@@ -61,19 +72,11 @@ class Trainer:
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
         for batch_idx, (imgs, masks) in enumerate(pbar):
-            if batch_idx == 0:
-                print(
-                    f"DEBUG: First batch - imgs shape: {imgs.shape}, masks shape: {masks.shape}"
-                )
-
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
             output = self.model(imgs)
             pred = _get_valid_pred(output)
-
-            if batch_idx == 0:
-                print(f"DEBUG: Got pred with shape: {pred.shape}")
 
             loss = combined_loss(pred, masks)
 
@@ -83,9 +86,6 @@ class Trainer:
 
             total_loss += loss.item()
             pbar.set_postfix(loss=loss.item())
-
-            if batch_idx == 0:
-                break  # Only run 1 batch for debugging
 
         return total_loss / len(train_loader)
 
