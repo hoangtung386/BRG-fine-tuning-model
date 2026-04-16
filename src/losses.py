@@ -35,19 +35,54 @@ def iou_score(pred, target, threshold=0.5):
 
 def boundary_iou(pred, target, boundary_width=5, threshold=0.5):
     pred = (torch.sigmoid(pred) > threshold).float()
-
     kernel = torch.ones(1, 1, boundary_width, boundary_width, device=pred.device)
-
     pred_dilated = F.conv2d(pred, kernel, padding=boundary_width // 2) > 0
     target_dilated = F.conv2d(target, kernel, padding=boundary_width // 2) > 0
-
     pred_boundary = pred_dilated & ~pred
     target_boundary = target_dilated & ~target
-
     pred_boundary = pred_boundary.float()
     target_boundary = target_boundary.float()
-
     intersection = (pred_boundary * target_boundary).sum()
     union = pred_boundary.sum() + target_boundary.sum() - intersection
-
     return (intersection + 1e-6) / (union + 1e-6)
+
+
+def dice_coefficient(pred, target, threshold=0.5):
+    pred = (torch.sigmoid(pred) > threshold).float()
+    intersection = (pred * target).sum()
+    return (2 * intersection + 1e-6) / (pred.sum() + target.sum() + 1e-6)
+
+
+def precision_score(pred, target, threshold=0.5):
+    pred = (torch.sigmoid(pred) > threshold).float()
+    tp = (pred * target).sum()
+    fp = (pred * (1 - target)).sum()
+    return (tp + 1e-6) / (tp + fp + 1e-6)
+
+
+def recall_score(pred, target, threshold=0.5):
+    pred = (torch.sigmoid(pred) > threshold).float()
+    tp = (pred * target).sum()
+    fn = ((1 - pred) * target).sum()
+    return (tp + 1e-6) / (tp + fn + 1e-6)
+
+
+def f1_score(pred, target, threshold=0.5):
+    pred = (torch.sigmoid(pred) > threshold).float()
+    tp = (pred * target).sum()
+    fp = (pred * (1 - target)).sum()
+    fn = ((1 - pred) * target).sum()
+    precision = (tp + 1e-6) / (tp + fp + 1e-6)
+    recall = (tp + 1e-6) / (tp + fn + 1e-6)
+    return 2 * precision * recall / (precision + recall + 1e-6)
+
+
+def compute_all_metrics(pred, target, threshold=0.5):
+    return {
+        "iou": iou_score(pred, target, threshold),
+        "boundary_iou": boundary_iou(pred, target, threshold=threshold),
+        "dice": dice_coefficient(pred, target, threshold),
+        "precision": precision_score(pred, target, threshold),
+        "recall": recall_score(pred, target, threshold),
+        "f1": f1_score(pred, target, threshold),
+    }
