@@ -3,29 +3,41 @@ import torch.nn.functional as F
 
 
 def _get_pred_tensor(pred):
+    print(f"DEBUG _get_pred_tensor: type={type(pred)}, is None={pred is None}")
     if pred is None:
         raise ValueError("Model prediction is None")
 
     # If it's a list/tuple, find the first valid tensor
     if isinstance(pred, (list, tuple)):
+        print(f"DEBUG: pred is list/tuple with len={len(pred)}")
+
         # Flatten nested lists and find valid tensor
-        def flatten_and_find(l):
-            for item in l:
+        def flatten_and_find(l, depth=0):
+            print(f"DEBUG flatten depth={depth}, type={type(l)}")
+            for i, item in enumerate(l):
                 if isinstance(item, (list, tuple)):
-                    result = flatten_and_find(item)
+                    result = flatten_and_find(item, depth + 1)
                     if result is not None:
                         return result
                 elif item is not None and isinstance(item, torch.Tensor):
+                    print(f"DEBUG: found valid tensor at index {i}, shape={item.shape}")
                     return item
+                else:
+                    print(
+                        f"DEBUG: item[{i}] is None or not tensor: {type(item) if item is not None else None}"
+                    )
             return None
 
         valid_pred = flatten_and_find(pred)
         if valid_pred is None:
+            print(f"DEBUG: final pred is None!")
             raise ValueError("No valid tensor found in model output")
         pred = valid_pred
 
     if not isinstance(pred, torch.Tensor):
+        print(f"DEBUG: pred is not tensor: {type(pred)}")
         raise ValueError(f"Model prediction is not a Tensor, got {type(pred)}")
+    print(f"DEBUG: returning pred with shape {pred.shape}")
     return pred
 
 
