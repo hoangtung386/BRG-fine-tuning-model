@@ -9,8 +9,8 @@ class Config:
 
     MODEL_NAME = "briaai/RMBG-2.0"
 
-    DATASET_PATH = "/content/dataset/images"
-    MASK_PATH = "/content/dataset/masks"
+    DATASET_PATH = "/content/drive/MyDrive/Projects/dataset_line-art"
+    MASK_PATH = "/content/drive/MyDrive/Projects/ground_truth_anime"
 
     CKPT_DIR = "/content/drive/MyDrive/rmbg_checkpoints"
     TRAIN_RATIO = 0.9
