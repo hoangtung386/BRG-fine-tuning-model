@@ -1,6 +1,6 @@
 class Config:
     IMG_SIZE = 1024
-    BATCH_SIZE = 8
+    BATCH_SIZE = 6
     NUM_WORKERS = 2
     NUM_EPOCHS = 30
     LEARNING_RATE = 2e-5
