@@ -6,23 +6,29 @@ from src.losses import combined_loss, iou_score, boundary_iou
 
 
 def _get_valid_pred(output):
-    """Recursively find first valid tensor in model output"""
+    """Find the tensor with largest spatial dimensions (last scale) in model output"""
     if output is None:
         raise ValueError("Model output is None")
 
-    def find_tensor(obj):
+    def find_largest_tensor(obj, best_tensor=None, best_size=0):
+        """Recursively find tensor with largest spatial size"""
         if obj is None:
-            return None
+            return best_tensor, best_size
         if isinstance(obj, torch.Tensor):
-            return obj
+            # Check spatial dimensions (H, W) - last 2 dims
+            if obj.dim() >= 4:
+                size = obj.shape[-2] * obj.shape[-1]
+                if size > best_size:
+                    return obj, size
+            return best_tensor, best_size
         if isinstance(obj, (list, tuple)):
             for item in obj:
-                result = find_tensor(item)
-                if result is not None:
-                    return result
-        return None
+                best_tensor, best_size = find_largest_tensor(
+                    item, best_tensor, best_size
+                )
+        return best_tensor, best_size
 
-    pred = find_tensor(output)
+    pred, size = find_largest_tensor(output)
     if pred is None:
         raise ValueError("No valid tensor in model output")
     return pred
