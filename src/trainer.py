@@ -6,14 +6,11 @@ from src.losses import combined_loss, iou_score, boundary_iou
 
 
 def _get_valid_pred(output):
-    """Extract valid tensor from model output - handles complex nested structures"""
-    print(f"DEBUG _get_valid_pred: type={type(output)}, is None={output is None}")
-
+    """Recursively find first valid tensor in model output"""
     if output is None:
         raise ValueError("Model output is None")
 
     def find_tensor(obj):
-        """Recursively find first valid tensor"""
         if obj is None:
             return None
         if isinstance(obj, torch.Tensor):
@@ -26,12 +23,8 @@ def _get_valid_pred(output):
         return None
 
     pred = find_tensor(output)
-
     if pred is None:
-        print(f"DEBUG: Could not find any tensor in output structure")
         raise ValueError("No valid tensor in model output")
-
-    print(f"DEBUG: Found tensor with shape: {pred.shape}")
     return pred
 
 
@@ -71,13 +64,12 @@ class Trainer:
         total_loss = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
-        for batch_idx, (imgs, masks) in enumerate(pbar):
+        for imgs, masks in pbar:
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
             output = self.model(imgs)
             pred = _get_valid_pred(output)
-
             loss = combined_loss(pred, masks)
 
             self.optimizer.zero_grad()

@@ -3,41 +3,15 @@ import torch.nn.functional as F
 
 
 def _get_pred_tensor(pred):
-    print(f"DEBUG _get_pred_tensor: type={type(pred)}, is None={pred is None}")
     if pred is None:
         raise ValueError("Model prediction is None")
-
-    # If it's a list/tuple, find the first valid tensor
     if isinstance(pred, (list, tuple)):
-        print(f"DEBUG: pred is list/tuple with len={len(pred)}")
-
-        # Flatten nested lists and find valid tensor
-        def flatten_and_find(l, depth=0):
-            print(f"DEBUG flatten depth={depth}, type={type(l)}")
-            for i, item in enumerate(l):
-                if isinstance(item, (list, tuple)):
-                    result = flatten_and_find(item, depth + 1)
-                    if result is not None:
-                        return result
-                elif item is not None and isinstance(item, torch.Tensor):
-                    print(f"DEBUG: found valid tensor at index {i}, shape={item.shape}")
-                    return item
-                else:
-                    print(
-                        f"DEBUG: item[{i}] is None or not tensor: {type(item) if item is not None else None}"
-                    )
-            return None
-
-        valid_pred = flatten_and_find(pred)
-        if valid_pred is None:
-            print(f"DEBUG: final pred is None!")
-            raise ValueError("No valid tensor found in model output")
-        pred = valid_pred
-
+        for p in reversed(pred):
+            if p is not None and isinstance(p, torch.Tensor):
+                return p
+        raise ValueError("No valid tensor found in model output")
     if not isinstance(pred, torch.Tensor):
-        print(f"DEBUG: pred is not tensor: {type(pred)}")
         raise ValueError(f"Model prediction is not a Tensor, got {type(pred)}")
-    print(f"DEBUG: returning pred with shape {pred.shape}")
     return pred
 
 
@@ -53,12 +27,12 @@ def bce_loss(pred, target):
     return F.binary_cross_entropy_with_logits(pred, target)
 
 
-def ssim_loss(pred, target, window_size=11):
+def ssim_loss(pred, target):
     pred = _get_pred_tensor(pred)
+    pred = torch.sigmoid(pred)
     from pytorch_msssim import ssim
 
-    pred = torch.sigmoid(pred)
-    return 1 - ssim(pred, target, window_size=window_size, size_average=True)
+    return 1 - ssim(pred, target, size_average=True)
 
 
 def combined_loss(pred, target, ssim_weight=10, bce_weight=90, iou_weight=0.25):
