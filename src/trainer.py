@@ -7,11 +7,16 @@ from src.losses import combined_loss, iou_score, boundary_iou
 
 def _get_valid_pred(output):
     """Extract valid tensor from model output"""
+    print(f"DEBUG _get_valid_pred: type={type(output)}")
     if output is None:
         raise ValueError("Model output is None")
     if isinstance(output, (list, tuple)):
+        print(f"DEBUG: output is list with len={len(output)}")
+        for i, p in enumerate(output):
+            print(f"DEBUG: output[{i}] = {type(p)}, is None={p is None}")
         for p in reversed(output):
             if p is not None and isinstance(p, torch.Tensor):
+                print(f"DEBUG: found valid tensor at reversed index, shape={p.shape}")
                 return p
         raise ValueError("No valid tensor in model output")
     if not isinstance(output, torch.Tensor):
@@ -56,11 +61,19 @@ class Trainer:
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
         for batch_idx, (imgs, masks) in enumerate(pbar):
+            if batch_idx == 0:
+                print(
+                    f"DEBUG: First batch - imgs shape: {imgs.shape}, masks shape: {masks.shape}"
+                )
+
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
             output = self.model(imgs)
             pred = _get_valid_pred(output)
+
+            if batch_idx == 0:
+                print(f"DEBUG: Got pred with shape: {pred.shape}")
 
             loss = combined_loss(pred, masks)
 
@@ -70,6 +83,9 @@ class Trainer:
 
             total_loss += loss.item()
             pbar.set_postfix(loss=loss.item())
+
+            if batch_idx == 0:
+                break  # Only run 1 batch for debugging
 
         return total_loss / len(train_loader)
 
