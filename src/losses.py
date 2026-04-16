@@ -6,7 +6,13 @@ def _get_pred_tensor(pred):
     if pred is None:
         raise ValueError("Model prediction is None")
     if isinstance(pred, (list, tuple)):
-        pred = pred[-1]
+        # Get the last non-None tensor
+        for p in reversed(pred):
+            if p is not None and isinstance(p, torch.Tensor):
+                pred = p
+                break
+        else:
+            raise ValueError("No valid tensor found in model output list")
     if not isinstance(pred, torch.Tensor):
         raise ValueError(f"Model prediction is not a Tensor, got {type(pred)}")
     return pred
