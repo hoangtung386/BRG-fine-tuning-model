@@ -7,3 +7,5 @@ tqdm>=4.65.0
 opencv-python>=4.8.0
 pytorch-msssim>=1.0.0
 kornia>=0.7.0
+wandb>=0.15.0
+huggingface_hub>=0.20.0

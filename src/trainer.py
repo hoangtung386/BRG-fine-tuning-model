@@ -7,7 +7,16 @@ from src.losses import combined_loss, iou_score, boundary_iou
 
 class Trainer:
     def __init__(
-        self, model, optimizer, device, ckpt_dir, num_epochs=30, use_boundary_iou=True
+        self,
+        model,
+        optimizer,
+        device,
+        ckpt_dir,
+        num_epochs=30,
+        use_boundary_iou=True,
+        use_wandb=False,
+        wandb_project="rmbg-lineart",
+        wandb_run_name=None,
     ):
         self.model = model
         self.optimizer = optimizer
@@ -17,6 +26,15 @@ class Trainer:
         self.best_iou = 0.0
         self.best_boundary_iou = 0.0
         self.use_boundary_iou = use_boundary_iou
+        self.use_wandb = use_wandb
+        self.wandb_project = wandb_project
+
+        if use_wandb:
+            import wandb
+
+            self.wandb = wandb
+            run_name = wandb_run_name or f"run_{num_epochs}ep"
+            wandb.init(project=wandb_project, name=run_name)
 
     def train_epoch(self, train_loader, epoch):
         self.model.train()
@@ -98,6 +116,19 @@ class Trainer:
 
             self.save_checkpoint(epoch, val_iou, val_boundary_iou, is_best)
 
+            if self.use_wandb:
+                self.wandb.log(
+                    {
+                        "train_loss": train_loss,
+                        "val_iou": val_iou,
+                        "val_boundary_iou": val_boundary_iou,
+                        "epoch": epoch,
+                    }
+                )
+
         print(
             f"Training complete! Best IoU: {self.best_iou:.4f}, Best Boundary IoU: {self.best_boundary_iou:.4f}"
         )
+
+        if self.use_wandb:
+            self.wandb.finish()
