@@ -5,14 +5,25 @@ import torch.nn.functional as F
 def _get_pred_tensor(pred):
     if pred is None:
         raise ValueError("Model prediction is None")
+
+    # If it's a list/tuple, find the first valid tensor
     if isinstance(pred, (list, tuple)):
-        # Get the last non-None tensor
-        for p in reversed(pred):
-            if p is not None and isinstance(p, torch.Tensor):
-                pred = p
-                break
-        else:
-            raise ValueError("No valid tensor found in model output list")
+        # Flatten nested lists and find valid tensor
+        def flatten_and_find(l):
+            for item in l:
+                if isinstance(item, (list, tuple)):
+                    result = flatten_and_find(item)
+                    if result is not None:
+                        return result
+                elif item is not None and isinstance(item, torch.Tensor):
+                    return item
+            return None
+
+        valid_pred = flatten_and_find(pred)
+        if valid_pred is None:
+            raise ValueError("No valid tensor found in model output")
+        pred = valid_pred
+
     if not isinstance(pred, torch.Tensor):
         raise ValueError(f"Model prediction is not a Tensor, got {type(pred)}")
     return pred
