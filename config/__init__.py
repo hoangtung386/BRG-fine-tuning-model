@@ -15,7 +15,7 @@ class Config:
     CKPT_DIR = "/content/drive/MyDrive/rmbg_checkpoints"
     TRAIN_RATIO = 0.9
 
-    USE_GRADIENT_CHECKPOINTING = True
+    USE_GRADIENT_CHECKPOINTING = False
 
 
 config = Config()
