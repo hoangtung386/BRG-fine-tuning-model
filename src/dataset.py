@@ -8,12 +8,24 @@ import random
 
 
 class LineArtDataset(Dataset):
-    def __init__(self, img_dir, mask_dir, img_size=1024, augment=True):
-        self.files = sorted(os.listdir(img_dir))
+    def __init__(
+        self,
+        img_dir,
+        mask_dir,
+        img_size=1024,
+        augment=True,
+        img_exts=(".jpg", ".jpeg", ".png"),
+        mask_ext=".png",
+    ):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.img_size = img_size
         self.augment = augment
+        self.img_exts = img_exts
+        self.mask_ext = mask_ext
+        self.samples = []
+
+        self._scan_subfolders()
 
         self.tf_img = transforms.Compose(
             [
@@ -29,8 +41,30 @@ class LineArtDataset(Dataset):
             ]
         )
 
+    def _scan_subfolders(self):
+        for subfolder in sorted(os.listdir(self.img_dir)):
+            img_sub_path = os.path.join(self.img_dir, subfolder)
+            mask_sub_path = os.path.join(self.mask_dir, subfolder)
+
+            if os.path.isdir(img_sub_path) and os.path.isdir(mask_sub_path):
+                for img_name in sorted(os.listdir(img_sub_path)):
+                    if not img_name.lower().endswith(self.img_exts):
+                        continue
+
+                    base_name = os.path.splitext(img_name)[0]
+                    mask_name = base_name + self.mask_ext
+                    mask_full_path = os.path.join(mask_sub_path, mask_name)
+
+                    if os.path.exists(mask_full_path):
+                        self.samples.append(
+                            {
+                                "image": os.path.join(img_sub_path, img_name),
+                                "mask": mask_full_path,
+                            }
+                        )
+
     def __len__(self):
-        return len(self.files)
+        return len(self.samples)
 
     def _augment_mask(self, mask):
         if random.random() < 0.3:
@@ -53,13 +87,10 @@ class LineArtDataset(Dataset):
         return img
 
     def __getitem__(self, idx):
-        name = self.files[idx]
+        sample = self.samples[idx]
 
-        img_path = os.path.join(self.img_dir, name)
-        mask_path = os.path.join(self.mask_dir, name)
-
-        img = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
+        img = Image.open(sample["image"]).convert("RGB")
+        mask = Image.open(sample["mask"]).convert("L")
 
         if self.augment:
             img = self._augment_image(img)
