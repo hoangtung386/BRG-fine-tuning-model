@@ -5,6 +5,20 @@ from tqdm import tqdm
 from src.losses import combined_loss, iou_score, boundary_iou
 
 
+def _get_valid_pred(output):
+    """Extract valid tensor from model output"""
+    if output is None:
+        raise ValueError("Model output is None")
+    if isinstance(output, (list, tuple)):
+        for p in reversed(output):
+            if p is not None and isinstance(p, torch.Tensor):
+                return p
+        raise ValueError("No valid tensor in model output")
+    if not isinstance(output, torch.Tensor):
+        raise ValueError(f"Model output is not a tensor: {type(output)}")
+    return output
+
+
 class Trainer:
     def __init__(
         self,
@@ -41,12 +55,14 @@ class Trainer:
         total_loss = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
-        for imgs, masks in pbar:
+        for batch_idx, (imgs, masks) in enumerate(pbar):
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
-            preds = self.model(imgs)[-1]
-            loss = combined_loss(preds, masks)
+            output = self.model(imgs)
+            pred = _get_valid_pred(output)
+
+            loss = combined_loss(pred, masks)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -67,9 +83,11 @@ class Trainer:
                 imgs = imgs.to(self.device)
                 masks = masks.to(self.device)
 
-                preds = self.model(imgs)[-1]
-                total_iou += iou_score(preds, masks).item()
-                total_boundary_iou += boundary_iou(preds, masks).item()
+                output = self.model(imgs)
+                pred = _get_valid_pred(output)
+
+                total_iou += iou_score(pred, masks).item()
+                total_boundary_iou += boundary_iou(pred, masks).item()
 
         avg_iou = total_iou / len(val_loader)
         avg_boundary_iou = total_boundary_iou / len(val_loader)
