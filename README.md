@@ -6,19 +6,19 @@ Fine-tuning script for [RMBG-2.0](https://huggingface.co/briaai/RMBG-2.0) model 
 
 ```
 BRG-fine-tuning-model/
-├── config/           # Configuration
+├── config/              # Configuration
 │   └── __init__.py
-├── src/              # Source code
+├── src/                 # Source code
 │   ├── __init__.py
-│   ├── dataset.py    # Dataset class (with augmentation)
-│   ├── model.py      # Model loading & optimizer
-│   ├── losses.py     # Loss functions (SSIM + BCE + IoU + Boundary IoU)
-│   ├── trainer.py    # Training loop
-│   ├── utils.py      # Utility functions
+│   ├── dataset.py       # Dataset class with subfolder support & augmentation
+│   ├── model.py        # Model loading, freezing options
+│   ├── losses.py       # Loss functions (SSIM + BCE + IoU + Boundary IoU)
+│   ├── trainer.py     # Training loop with wandb logging
+│   ├── utils.py       # Utility functions
 │   └── visualization.py  # Visualization functions
-├── data/             # Dataset files
-├── notebooks/        # Colab notebooks
-│   └── train.ipynb   # Colab training notebook
+├── data/                # Dataset files (images/, masks/)
+├── notebooks/           # Colab notebooks
+│   └── train.ipynb    # Colab training notebook (clone & run)
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -28,10 +28,11 @@ BRG-fine-tuning-model/
 
 - **IMG_SIZE**: 1024 (optimal for RMBG-2.0)
 - **Loss**: 10×SSIM + 90×BCE + 0.25×IoU (BiRefNet formula)
-- **Optimizer**: AdamW with differential LR (encoder: 5e-6, decoder: 2e-5)
-- **Gradient Checkpointing**: Enabled to save VRAM
+- **Optimizer**: AdamW with trainable params only
+- **Freezing**: Freeze encoder to speed up training (~5-10x faster)
 - **Augmentation**: Random erode/dilate, brightness/contrast
 - **Metric**: Boundary IoU (5px edge) for best model selection
+- **WandB**: Integrated logging for experiment tracking
 
 ## Configuration
 
@@ -39,17 +40,25 @@ Edit `config/__init__.py`:
 - `IMG_SIZE`: Input image size (default: 1024)
 - `BATCH_SIZE`: Batch size (default: 4)
 - `NUM_EPOCHS`: Training epochs (default: 30)
-- `LEARNING_RATE`: Decoder LR (default: 2e-5)
-- `LEARNING_RATE_ENCODER`: Encoder LR (default: 5e-6)
-- `USE_GRADIENT_CHECKPOINTING`: Enable gradient checkpointing (default: True)
+- `LEARNING_RATE`: Learning rate (default: 2e-5)
+- `FREEZE_ENCODER`: Freeze encoder (default: True) - set False for full fine-tune
+- `FREEZE_DECODER_EXCEPT_LAST`: Freeze decoder except last layer
 - `CKPT_DIR`: Checkpoint save path (Google Drive)
+
+## Training Modes
+
+| Mode | Speed | Best For |
+|------|-------|---------|
+| `FREEZE_ENCODER=True` | ~5-10x faster | Quick fine-tuning, limited GPU |
+| `FREEZE_ENCODER=False` | Slower | Full fine-tune, best quality |
 
 ## Colab Usage
 
-1. Open `notebooks/train.ipynb` in Colab
-2. Select GPU runtime (G4 recommended)
-3. Run cells sequentially
-4. Checkpoints are saved to `/content/drive/MyDrive/rmbg_checkpoints/`
+1. Clone project from GitHub to Colab
+2. Add HuggingFace & W&B tokens in Colab secrets
+3. Select GPU runtime (G4 recommended)
+4. Run cells sequentially
+5. Checkpoints saved to `/content/drive/MyDrive/rmbg_checkpoints/`
 
 ## Checkpoints
 
