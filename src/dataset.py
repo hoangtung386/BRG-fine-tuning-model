@@ -2,7 +2,7 @@ import os
 import numpy as np
 from PIL import Image, ImageFilter
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 import random
 
@@ -42,6 +42,7 @@ class LineArtDataset(Dataset):
         )
 
     def _scan_subfolders(self):
+        """Scan subfolders and create image-mask pairs"""
         for subfolder in sorted(os.listdir(self.img_dir)):
             img_sub_path = os.path.join(self.img_dir, subfolder)
             mask_sub_path = os.path.join(self.mask_dir, subfolder)
@@ -60,8 +61,12 @@ class LineArtDataset(Dataset):
                             {
                                 "image": os.path.join(img_sub_path, img_name),
                                 "mask": mask_full_path,
+                                "subfolder": subfolder,  # Track source subfolder for debugging
+                                "base_name": base_name,
                             }
                         )
+
+        print(f"Loaded {len(self.samples)} image-mask pairs from {self.img_dir}")
 
     def __len__(self):
         return len(self.samples)
@@ -92,6 +97,10 @@ class LineArtDataset(Dataset):
         img = Image.open(sample["image"]).convert("RGB")
         mask = Image.open(sample["mask"]).convert("L")
 
+        # Verify mapping for debugging
+        if self.augment and random.random() < 0.001:  # Rare debug
+            print(f"DEBUG: {sample['subfolder']}/{sample['base_name']} -> OK")
+
         if self.augment:
             img = self._augment_image(img)
             mask = self._augment_mask(mask)
@@ -101,3 +110,25 @@ class LineArtDataset(Dataset):
         mask = torch.from_numpy(np.array(mask) / 255.0).unsqueeze(0).float()
 
         return img, mask
+
+
+def create_train_val_split(dataset, train_ratio=0.9, shuffle=True, seed=42):
+    """Create train/val split without using random_split"""
+    n = len(dataset)
+    n_train = int(train_ratio * n)
+
+    if shuffle:
+        indices = torch.randperm(
+            n, generator=torch.Generator().manual_seed(seed)
+        ).tolist()
+    else:
+        indices = list(range(n))
+
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:]
+
+    train_dataset = Subset(dataset, train_indices)
+    val_dataset = Subset(dataset, val_indices)
+
+    print(f"Train: {len(train_dataset)} samples, Val: {len(val_dataset)} samples")
+    return train_dataset, val_dataset
