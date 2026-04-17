@@ -43,6 +43,7 @@ class Trainer:
         ckpt_dir,
         num_epochs=30,
         phase=1,
+        resume_from=None,
         use_boundary_iou=True,
         use_wandb=False,
         wandb_project="rmbg-lineart",
@@ -54,8 +55,27 @@ class Trainer:
         self.ckpt_dir = ckpt_dir
         self.num_epochs = num_epochs
         self.phase = phase
-        self.best_iou = 0.0
-        self.best_boundary_iou = 0.0
+        self.start_epoch = 1
+
+        # Resume from checkpoint
+        if resume_from and os.path.exists(resume_from):
+            print(f"Resuming from checkpoint: {resume_from}")
+            ckpt = torch.load(resume_from, map_location=device)
+            self.model.load_state_dict(ckpt["model_state_dict"])
+            if "optimizer_state_dict" in ckpt:
+                self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            self.start_epoch = ckpt.get("epoch", 1) + 1
+            self.phase = ckpt.get("phase", phase)
+            self.best_iou = ckpt.get("val_iou", 0.0)
+            self.best_boundary_iou = ckpt.get("val_boundary_iou", 0.0)
+            print(f"  Resumed from epoch {ckpt.get('epoch', 0)}, phase {self.phase}")
+            print(
+                f"  Best IoU: {self.best_iou:.4f}, Boundary IoU: {self.best_boundary_iou:.4f}"
+            )
+        else:
+            self.best_iou = 0.0
+            self.best_boundary_iou = 0.0
+
         self.use_boundary_iou = use_boundary_iou
         self.use_wandb = use_wandb
         self.wandb_project = wandb_project
@@ -158,7 +178,8 @@ class Trainer:
             print(f"  -> Saved best_model.pth (Boundary IoU: {val_boundary_iou:.4f})")
 
     def train(self, train_loader, val_loader):
-        for epoch in range(1, self.num_epochs + 1):
+        print(f"Starting training from epoch {self.start_epoch} to {self.num_epochs}")
+        for epoch in range(self.start_epoch, self.num_epochs + 1):
             train_loss = self.train_epoch(train_loader, epoch)
             val_iou, val_boundary_iou = self.validate(val_loader)
 
