@@ -1,10 +1,17 @@
 import os
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 import torch
 from torch.utils.data import Dataset, Subset
 from torchvision import transforms
 import random
+
+try:
+    from scipy.ndimage import binary_dilation, binary_erosion
+
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
 
 
 class LineArtDataset(Dataset):
@@ -78,7 +85,40 @@ class LineArtDataset(Dataset):
                 mask = mask.filter(ImageFilter.MinFilter(kernel_size))
             else:
                 mask = mask.filter(ImageFilter.MaxFilter(kernel_size))
+
+        if random.random() < 0.15:
+            mask = self._line_thickness_jitter(mask)
+
+        if random.random() < 0.05:
+            mask = self._drop_random_stroke(mask)
+
         return mask
+
+    def _line_thickness_jitter(self, mask):
+        arr = np.array(mask)
+        jitter = random.uniform(-2, 2)
+        kernel = int(abs(jitter)) + 1
+        if jitter > 0 and HAS_SCIPY:
+            struct = np.ones((kernel, kernel))
+            arr = binary_dilation(arr > 127, structure=struct).astype(np.uint8) * 255
+        elif jitter < 0 and HAS_SCIPY:
+            struct = np.ones((kernel, kernel))
+            arr = binary_erosion(arr > 127, structure=struct).astype(np.uint8) * 255
+        elif jitter > 0:
+            arr = np.array(mask.filter(ImageFilter.MaxFilter(kernel)))
+        elif jitter < 0:
+            arr = np.array(mask.filter(ImageFilter.MinFilter(kernel)))
+        return Image.fromarray(arr)
+
+    def _drop_random_stroke(self, mask):
+        arr = np.array(mask)
+        h, w = arr.shape
+        for _ in range(random.randint(1, 3)):
+            y = random.randint(2, h - 3)
+            x = random.randint(2, w - 3)
+            size = random.randint(1, 3)
+            arr[y - size : y + size, x - size : x + size] = 0
+        return Image.fromarray(arr)
 
     def _augment_image(self, img):
         if random.random() < 0.3:
