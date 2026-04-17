@@ -68,6 +68,7 @@ class Trainer:
     def train_epoch(self, train_loader, epoch):
         self.model.train()
         total_loss = 0
+        batch_size = train_loader.batch_size
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
         for imgs, masks in pbar:
@@ -76,7 +77,16 @@ class Trainer:
 
             output = self.model(imgs)
             pred = _get_valid_pred(output)
-            loss = combined_loss(pred, masks)
+
+            # Skip SSIM loss when batch_size=1 to avoid BatchNorm/SSIM dimension error
+            if batch_size == 1:
+                from src.losses import bce_loss, iou_score, dice_loss
+
+                bce = bce_loss(pred, masks)
+                iou = 1 - iou_score(pred, masks)
+                loss = 90 * bce + 0.25 * iou
+            else:
+                loss = combined_loss(pred, masks)
 
             self.optimizer.zero_grad()
             loss.backward()
