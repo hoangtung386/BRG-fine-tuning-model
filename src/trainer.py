@@ -90,19 +90,21 @@ class Trainer:
     def train_epoch(self, train_loader, epoch):
         self.model.train()
         total_loss = 0
-        batch_size = train_loader.batch_size
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch} [Train]")
         for imgs, masks in pbar:
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
+            # Check actual batch size from tensor
+            batch_size = imgs.shape[0]
+
             output = self.model(imgs)
             pred = _get_valid_pred(output)
 
             # Skip SSIM loss when batch_size=1 to avoid BatchNorm/SSIM dimension error
             if batch_size == 1:
-                from src.losses import bce_loss, iou_score, dice_loss
+                from src.losses import bce_loss, iou_score
 
                 bce = bce_loss(pred, masks)
                 iou = 1 - iou_score(pred, masks)
