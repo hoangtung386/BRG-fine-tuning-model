@@ -42,6 +42,7 @@ class Trainer:
         device,
         ckpt_dir,
         num_epochs=30,
+        phase=1,
         use_boundary_iou=True,
         use_wandb=False,
         wandb_project="rmbg-lineart",
@@ -52,6 +53,7 @@ class Trainer:
         self.device = device
         self.ckpt_dir = ckpt_dir
         self.num_epochs = num_epochs
+        self.phase = phase
         self.best_iou = 0.0
         self.best_boundary_iou = 0.0
         self.use_boundary_iou = use_boundary_iou
@@ -118,22 +120,42 @@ class Trainer:
 
         return avg_iou, avg_boundary_iou
 
-    def save_checkpoint(self, epoch, val_iou, val_boundary_iou, is_best=False):
-        checkpoint = {
+    def save_checkpoint(
+        self, epoch, val_iou, val_boundary_iou, is_best=False, phase=1, train_loss=0.0
+    ):
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+
+        # Always save last model
+        last_ckpt = {
             "epoch": epoch,
+            "phase": phase,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "val_iou": val_iou,
             "val_boundary_iou": val_boundary_iou,
+            "train_loss": train_loss,
         }
+        torch.save(last_ckpt, os.path.join(self.ckpt_dir, "last_model.pth"))
 
-        os.makedirs(self.ckpt_dir, exist_ok=True)
-        torch.save(checkpoint, os.path.join(self.ckpt_dir, "last_model.pth"))
+        # Save per-epoch checkpoint
+        epoch_ckpt = {
+            "epoch": epoch,
+            "phase": phase,
+            "model_state_dict": self.model.state_dict(),
+            "val_iou": val_iou,
+            "val_boundary_iou": val_boundary_iou,
+            "train_loss": train_loss,
+        }
+        torch.save(
+            epoch_ckpt, os.path.join(self.ckpt_dir, f"phase{phase}_ep{epoch}.pt")
+        )
 
+        # Save best model if improved
         if is_best:
             torch.save(
                 self.model.state_dict(), os.path.join(self.ckpt_dir, "best_model.pth")
             )
+            print(f"  -> Saved best_model.pth (Boundary IoU: {val_boundary_iou:.4f})")
 
     def train(self, train_loader, val_loader):
         for epoch in range(1, self.num_epochs + 1):
@@ -156,7 +178,9 @@ class Trainer:
                     self.best_iou = val_iou
                     print(f"  -> New best! IoU={self.best_iou:.4f}")
 
-            self.save_checkpoint(epoch, val_iou, val_boundary_iou, is_best)
+            self.save_checkpoint(
+                epoch, val_iou, val_boundary_iou, is_best, self.phase, train_loss
+            )
 
             if self.use_wandb:
                 self.wandb.log(
