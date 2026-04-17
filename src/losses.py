@@ -53,14 +53,15 @@ def iou_score(pred, target, threshold=0.5):
 
 def boundary_iou(pred, target, boundary_width=5, threshold=0.5):
     pred = _get_pred_tensor(pred)
-    pred = (torch.sigmoid(pred) > threshold).float()
+    pred = torch.sigmoid(pred) > threshold
+    target = target > threshold
     kernel = torch.ones(1, 1, boundary_width, boundary_width, device=pred.device)
-    pred_dilated = F.conv2d(pred, kernel, padding=boundary_width // 2) > 0
-    target_dilated = F.conv2d(target, kernel, padding=boundary_width // 2) > 0
-    pred_boundary = pred_dilated & ~pred
-    target_boundary = target_dilated & ~target
-    pred_boundary = pred_boundary.float()
-    target_boundary = target_boundary.float()
+    pred_dilated = F.conv2d(pred.float(), kernel, padding=boundary_width // 2) > 0
+    target_dilated = F.conv2d(target.float(), kernel, padding=boundary_width // 2) > 0
+    pred_boundary = pred_dilated.float() - pred.float()
+    target_boundary = target_dilated.float() - target.float()
+    pred_boundary = (pred_boundary > 0).float()
+    target_boundary = (target_boundary > 0).float()
     intersection = (pred_boundary * target_boundary).sum()
     union = pred_boundary.sum() + target_boundary.sum() - intersection
     return (intersection + 1e-6) / (union + 1e-6)
