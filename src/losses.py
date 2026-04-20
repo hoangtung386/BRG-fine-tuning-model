@@ -65,28 +65,69 @@ def filled_region_loss(pred, target, kernel_size=15, threshold=0.1):
     return F.mse_loss(pred_sigmoid * holes, target * holes)
 
 
+def _boundary_mask(target):
+    target_binary = (target > 0.5).float()
+    kernel = torch.ones(1, 1, 3, 3, device=target.device, dtype=target.dtype)
+    dilated = (F.conv2d(target_binary, kernel, padding=1) > 0).float()
+    eroded = (F.conv2d(target_binary, kernel, padding=1) >= 9).float()
+    return (dilated - eroded).clamp(0, 1)
+
+
+def masked_redrawing_loss(
+    pred,
+    target,
+    white_weight=0.5,
+    edge_weight=1.0,
+    boundary_boost=100.0,
+):
+    pred = _get_pred_tensor(pred)
+    pred_prob = torch.sigmoid(pred)
+
+    # Mask 1: downweight abundant white pixels.
+    white_mask = (target > 0.9).float()
+    mask1 = 1.0 - (1.0 - white_weight) * white_mask
+
+    # Mask 2: emphasize drawing strokes / edge disagreement.
+    edge_kernel_x = torch.tensor(
+        [[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]],
+        device=target.device,
+        dtype=target.dtype,
+    ).view(1, 1, 3, 3)
+    edge_kernel_y = edge_kernel_x.transpose(2, 3).contiguous()
+    target_gx = F.conv2d(target, edge_kernel_x, padding=1)
+    target_gy = F.conv2d(target, edge_kernel_y, padding=1)
+    pred_gx = F.conv2d(pred_prob, edge_kernel_x, padding=1)
+    pred_gy = F.conv2d(pred_prob, edge_kernel_y, padding=1)
+    target_edge = torch.sqrt(target_gx * target_gx + target_gy * target_gy + 1e-6)
+    pred_edge = torch.sqrt(pred_gx * pred_gx + pred_gy * pred_gy + 1e-6)
+    mask2 = edge_weight * torch.abs(target_edge - pred_edge)
+
+    # Mask 3: strongly weight GT boundaries.
+    mask3 = boundary_boost * _boundary_mask(target)
+
+    weight_map = mask1 + mask2 + mask3
+    error = pred_prob - target
+    return torch.mean((weight_map * error) ** 2)
+
+
 def combined_loss(
     pred,
     target,
-    ssim_weight=0,
-    bce_weight=1,
-    dice_weight=1,
-    iou_weight=1,
-    hole_weight=2,
+    white_weight=0.5,
+    edge_weight=1.0,
+    boundary_boost=100.0,
+    hole_weight=2.0,
 ):
     pred = _get_pred_tensor(pred)
-    ssim = ssim_loss(pred, target)
-    bce = focal_bce_loss(pred, target, alpha=0.75, gamma=2.0)
-    iou = 1 - iou_score(pred, target)
-    dice = dice_loss(pred, target)
-    hole = filled_region_loss(pred, target)
-    return (
-        ssim_weight * ssim
-        + bce_weight * bce
-        + iou_weight * iou
-        + dice_weight * dice
-        + hole_weight * hole
+    redraw = masked_redrawing_loss(
+        pred,
+        target,
+        white_weight=white_weight,
+        edge_weight=edge_weight,
+        boundary_boost=boundary_boost,
     )
+    hole = filled_region_loss(pred, target)
+    return redraw + hole_weight * hole
 
 
 def iou_score(pred, target, threshold=0.5):
