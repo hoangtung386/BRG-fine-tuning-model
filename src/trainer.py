@@ -99,23 +99,9 @@ class Trainer:
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
-            # Check actual batch size from tensor
-            batch_size = imgs.shape[0]
-
             output = self.model(imgs)
             pred = _get_valid_pred(output)
-
-            # Skip SSIM loss when batch_size=1 to avoid BatchNorm/SSIM dimension error
-            if batch_size == 1:
-                from src.losses import focal_bce_loss, iou_score, dice_loss, filled_region_loss
-
-                bce = focal_bce_loss(pred, masks, alpha=0.75, gamma=2.0)
-                iou = 1 - iou_score(pred, masks)
-                dice = dice_loss(pred, masks)
-                hole = filled_region_loss(pred, masks)
-                loss = bce + iou + dice + 2 * hole
-            else:
-                loss = combined_loss(pred, masks)
+            loss = combined_loss(pred, masks)
 
             self.optimizer.zero_grad()
             loss.backward()
