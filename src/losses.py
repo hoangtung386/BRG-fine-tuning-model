@@ -27,6 +27,16 @@ def bce_loss(pred, target):
     return F.binary_cross_entropy_with_logits(pred, target)
 
 
+def focal_bce_loss(pred, target, alpha=0.75, gamma=2.0):
+    pred = _get_pred_tensor(pred)
+    bce = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+    prob = torch.sigmoid(pred)
+    pt = prob * target + (1 - prob) * (1 - target)
+    focal_weight = alpha * target + (1 - alpha) * (1 - target)
+    focal_weight = focal_weight * (1 - pt).pow(gamma)
+    return (focal_weight * bce).mean()
+
+
 def ssim_loss(pred, target):
     pred = _get_pred_tensor(pred)
     pred = torch.sigmoid(pred)
@@ -35,12 +45,48 @@ def ssim_loss(pred, target):
     return 1 - ssim(pred, target, size_average=True)
 
 
-def combined_loss(pred, target, ssim_weight=10, bce_weight=90, iou_weight=0.25):
+def filled_region_loss(pred, target, kernel_size=15, threshold=0.1):
+    pred = _get_pred_tensor(pred)
+    pred_sigmoid = torch.sigmoid(pred)
+
+    kernel = torch.ones(
+        1, 1, kernel_size, kernel_size, device=pred_sigmoid.device, dtype=pred_sigmoid.dtype
+    )
+    kernel_area = float(kernel_size * kernel_size)
+
+    pred_dilated = F.conv2d(pred_sigmoid, kernel, padding=kernel_size // 2) / kernel_area
+    pred_dilated = (pred_dilated > threshold).float()
+    pred_closed = F.conv2d(pred_dilated, kernel, padding=kernel_size // 2) / kernel_area
+    pred_closed = (pred_closed > threshold).float()
+
+    holes = (pred_closed - pred_sigmoid.detach()).clamp(0, 1)
+    if holes.sum() <= 0:
+        return pred_sigmoid.new_tensor(0.0)
+    return F.mse_loss(pred_sigmoid * holes, target * holes)
+
+
+def combined_loss(
+    pred,
+    target,
+    ssim_weight=5,
+    bce_weight=1,
+    dice_weight=1,
+    iou_weight=1,
+    hole_weight=2,
+):
     pred = _get_pred_tensor(pred)
     ssim = ssim_loss(pred, target)
-    bce = bce_loss(pred, target)
+    bce = focal_bce_loss(pred, target, alpha=0.75, gamma=2.0)
     iou = 1 - iou_score(pred, target)
-    return ssim_weight * ssim + bce_weight * bce + iou_weight * iou
+    dice = dice_loss(pred, target)
+    hole = filled_region_loss(pred, target)
+    return (
+        ssim_weight * ssim
+        + bce_weight * bce
+        + iou_weight * iou
+        + dice_weight * dice
+        + hole_weight * hole
+    )
 
 
 def iou_score(pred, target, threshold=0.5):
