@@ -93,6 +93,7 @@ def compute_metrics(pred_mask, gt_mask, threshold=0.5):
 
 def test_model_on_data(model, data_dir, mask_dir=None, img_size=1024, threshold=0.5, device="cuda", output_dir=None):
     data_dir = Path(data_dir)
+    output_root = Path(output_dir) if output_dir else None
     
     # Find all images
     extensions = ["jpg", "jpeg", "png", "JPG", "JPEG", "PNG"]
@@ -103,8 +104,8 @@ def test_model_on_data(model, data_dir, mask_dir=None, img_size=1024, threshold=
     
     print(f"Found {len(image_paths)} images in {data_dir}")
     
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    if output_root:
+        output_root.mkdir(parents=True, exist_ok=True)
     
     all_metrics = []
     category_metrics = {}
@@ -118,8 +119,10 @@ def test_model_on_data(model, data_dir, mask_dir=None, img_size=1024, threshold=
             pred_mask = predict(model, img_tensor, device)
             mask_binary = (pred_mask > threshold).astype(np.uint8) * 255
             
-            if output_dir:
-                out_path = os.path.join(output_dir, f"{img_path.stem}_mask.png")
+            if output_root:
+                rel_path = img_path.relative_to(data_dir)
+                out_path = output_root / rel_path.parent / f"{img_path.stem}_mask.png"
+                out_path.parent.mkdir(parents=True, exist_ok=True)
                 Image.fromarray(mask_binary).save(out_path)
             
             if mask_dir:
