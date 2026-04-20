@@ -12,7 +12,7 @@ BRG-fine-tuning-model/
 │   ├── __init__.py
 │   ├── dataset.py       # Dataset with subfolder support
 │   ├── model.py        # Model loading & freezing
-│   ├── losses.py       # Losses: Focal BCE + SSIM + IoU + Dice + hole penalty
+│   ├── losses.py       # Masked redrawing loss + boundary boost + hole penalty
 │   ├── trainer.py     # Training loop with wandb + early stopping
 │   ├── utils.py      # Utilities
 │   └── visualization.py  # Visualization + optional hole filling
@@ -65,10 +65,12 @@ After training, download `best_model.pth` from Google Drive to project root:
 ## Features
 
 - **IMG_SIZE**: 1024 (optimal for RMBG-2.0)
-- **Loss**: Balanced objective = `0×SSIM + 1×Focal BCE + 1×IoU loss + 1×Dice loss + 2×hole loss`
+- **Loss**: Masked redrawing loss (`Mask1 + Mask2 + 100xBoundaryMask`) + hole penalty
 - **Optimizer**: AdamW with trainable params only
 - **Freezing**: Progressive unfreezing (`patch_embed + norms` -> `stage 0/1` -> deeper blocks)
-- **Augmentation**: Random erode/dilate, brightness/contrast
+- **Preprocessing**: Trapped-ball style gap closing (`R=3`) to seal broken line boundaries
+- **Structural guidance**: Skeleton-map guided input enhancement for edge-focused learning
+- **Augmentation**: Random erode/dilate, brightness/contrast + progressive patch shuffle (2x2 -> 32x32)
 - **Metric**: Boundary IoU (5px edge) for best model selection
 - **Early stopping**: Patience-based stop to reduce overfitting (default patience=4)
 - **Post-processing**: Optional hole filling for cleaner binary masks in visualization/inference helpers
