@@ -68,7 +68,7 @@ def filled_region_loss(pred, target, kernel_size=15, threshold=0.1):
 def combined_loss(
     pred,
     target,
-    ssim_weight=5,
+    ssim_weight=0,
     bce_weight=1,
     dice_weight=1,
     iou_weight=1,
