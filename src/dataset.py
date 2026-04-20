@@ -146,6 +146,9 @@ class LineArtDataset(Dataset):
             mask = self._augment_mask(mask)
 
         img = self.tf_img(img)
+        # For very bright line-art inputs, invert to better match pretrained feature statistics.
+        if img.mean() > 0.8:
+            img = 1.0 - img
         mask = self.mask_transform(mask)
         mask = torch.from_numpy(np.array(mask) / 255.0).unsqueeze(0).float()
 
