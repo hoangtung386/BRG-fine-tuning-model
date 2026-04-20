@@ -42,3 +42,14 @@ venv.bak/
 
 .ipynb_checkpoints/
 .ruff_cache/
+
+# Data folders
+data/
+test_data/
+test_output/
+wandb/
+
+# Model checkpoints
+best_model.pth
+last_model.pth
+*.pth
