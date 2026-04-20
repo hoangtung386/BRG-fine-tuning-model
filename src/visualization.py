@@ -4,6 +4,24 @@ import matplotlib.pyplot as plt
 from torchvision.utils import make_grid
 
 
+def fill_holes(binary_mask):
+    """Fill enclosed holes in a binary mask."""
+    try:
+        from scipy.ndimage import binary_fill_holes
+    except ImportError:
+        return binary_mask
+    return binary_fill_holes(binary_mask)
+
+
+def predict_with_fill(model, img_tensor, device="cuda", threshold=0.5):
+    model.eval()
+    with torch.no_grad():
+        pred = model(img_tensor.unsqueeze(0).to(device))[-1]
+        pred = torch.sigmoid(pred[0, 0]).cpu().numpy()
+    binary = pred > threshold
+    return fill_holes(binary)
+
+
 def denormalize(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     mean = torch.tensor(mean).view(-1, 1, 1)
     std = torch.tensor(std).view(-1, 1, 1)
@@ -22,7 +40,7 @@ def visualize_prediction(model, dataset, idx=0, device="cuda"):
 
     img = denormalize(img).permute(1, 2, 0).numpy()
     mask = mask.squeeze().numpy()
-    pred_binary = (pred > 0.5).astype(np.float32)
+    pred_binary = fill_holes(pred > 0.5).astype(np.float32)
 
     fig, axes = plt.subplots(1, 4, figsize=(16, 4))
     axes[0].imshow(img)
