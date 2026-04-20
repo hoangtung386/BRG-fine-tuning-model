@@ -6,6 +6,7 @@ class Config:
     LEARNING_RATE = 2e-5
     LEARNING_RATE_ENCODER = 5e-6
     WEIGHT_DECAY = 0.01
+    FREEZE_ENCODER = False
 
     MODEL_NAME = "briaai/RMBG-2.0"
 
