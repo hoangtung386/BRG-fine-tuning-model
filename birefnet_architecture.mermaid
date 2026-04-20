@@ -1,0 +1,249 @@
+flowchart TD
+    INPUT(["📷 Input · 3×1024×1024"])
+
+    %% ═══════════════════════════════════════════════
+    %% BACKBONE
+    %% ═══════════════════════════════════════════════
+    subgraph BB ["🔷 SwinTransformer Backbone — shared weights, run ×2 scales"]
+        direction TB
+
+        subgraph SC1 ["Scale 1 · 1024×1024 input"]
+            direction TB
+            PE1["PatchEmbed\nConv2d(3→192, 4×4, stride=4) + LayerNorm\n→ 192 × 256×256"]
+
+            subgraph L0 ["BasicLayer 0 · 2× SwinTransformerBlock · dim=192 · 6 heads"]
+                B00["Block 0 · W-MSA\nnorm1 LN(192) · qkv Linear(192→576) · proj Linear(192→192)\nnorm2 LN(192) · mlp fc1(192→768) → GELU → fc2(768→192)\ndrop_path: Identity"]
+                B01["Block 1 · SW-MSA\nnorm1 LN(192) · qkv Linear(192→576) · proj Linear(192→192)\nnorm2 LN(192) · mlp fc1(192→768) → GELU → fc2(768→192)\ndrop_path: DropPath(0.009)"]
+                B00 --> B01
+            end
+            PM0["PatchMerging 0\nLayerNorm(768) → Linear(768→384, no bias)\n→ 384 × 128×128"]
+
+            subgraph L1 ["BasicLayer 1 · 2× SwinTransformerBlock · dim=384 · 12 heads"]
+                B10["Block 0 · W-MSA · drop_path=0.017\nqkv(384→1152) · proj(384→384) · mlp(384→1536→384)"]
+                B11["Block 1 · SW-MSA · drop_path=0.026\nqkv(384→1152) · proj(384→384) · mlp(384→1536→384)"]
+                B10 --> B11
+            end
+            PM1["PatchMerging 1\nLayerNorm(1536) → Linear(1536→768, no bias)\n→ 768 × 64×64"]
+
+            subgraph L2 ["BasicLayer 2 · 18× SwinTransformerBlock · dim=768 · 24 heads"]
+                B2x["Block 0–17 · W-MSA/SW-MSA alternating\ndrop_path: 0.035→0.043→0.052→...→0.183\nqkv(768→2304) · proj(768→768) · mlp(768→3072→768)"]
+            end
+            PM2["PatchMerging 2\nLayerNorm(3072) → Linear(3072→1536, no bias)\n→ 1536 × 32×32"]
+
+            subgraph L3 ["BasicLayer 3 · 2× SwinTransformerBlock · dim=1536 · 48 heads"]
+                B30["Block 0 · W-MSA · drop_path=0.191\nqkv(1536→4608) · proj(1536→1536) · mlp(1536→6144→1536)"]
+                B31["Block 1 · SW-MSA · drop_path=0.200\nqkv(1536→4608) · proj(1536→1536) · mlp(1536→6144→1536)"]
+                B30 --> B31
+            end
+
+            N0["LayerNorm norm0 → F1 : 192 × 256×256"]
+            N1["LayerNorm norm1 → F2 : 384 × 128×128"]
+            N2["LayerNorm norm2 → F3 : 768 × 64×64"]
+            N3["LayerNorm norm3 → F4 : 1536 × 32×32"]
+
+            PE1 --> L0 --> N0
+            L0 --> PM0 --> L1 --> N1
+            L1 --> PM1 --> L2 --> N2
+            L2 --> PM2 --> L3 --> N3
+        end
+
+        subgraph SC2 ["Scale 2 · 512×512 input (all weights shared with Scale 1)"]
+            direction TB
+            PE2["PatchEmbed (shared) → 192 × 128×128"]
+            L0b["BasicLayer 0 (shared) → 192 × 128×128"] --> PM0b["PatchMerging (shared) → 384 × 64×64"]
+            PM0b --> L1b["BasicLayer 1 (shared) → 384 × 64×64"] --> PM1b["PatchMerging (shared) → 768 × 32×32"]
+            PM1b --> L2b["BasicLayer 2 (shared) → 768 × 32×32"] --> PM2b["PatchMerging (shared) → 1536 × 16×16"]
+            PM2b --> L3b["BasicLayer 3 (shared) → 1536 × 16×16"]
+            G1["norm0 → G1 : 192 × 128×128"]
+            G2["norm1 → G2 : 384 × 64×64"]
+            G3["norm2 → G3 : 768 × 32×32"]
+            G4["norm3 → G4 : 1536 × 16×16"]
+            PE2 --> L0b --> G1
+            L0b --> PM0b --> L1b --> G2
+            L1b --> PM1b --> L2b --> G3
+            L2b --> PM2b --> L3b --> G4
+        end
+    end
+
+    %% ═══════════════════════════════════════════════
+    %% FEATURE ALIGNMENT & CONCAT
+    %% ═══════════════════════════════════════════════
+    CONCAT["Upsample all features to 32×32 then Concat\nScale1: F4(1536@32) + F3(768@64)↑ + F2(384@128)↑ + F1(192@256)↑\nScale2: G4(1536@16)↑ + G3(768@32) + G2(384@64)↑ + G1(192@128)↑\nTotal = 5760 × 32×32"]
+
+    %% ═══════════════════════════════════════════════
+    %% SQUEEZE MODULE
+    %% ═══════════════════════════════════════════════
+    subgraph SQ ["🟠 Squeeze Module — BasicDecBlk · 5760→3072 @ 32×32"]
+        direction TB
+        SQ_IN["conv_in: Conv2d(5760→64, 3×3) · BN · ReLU\nbn_in: BN(64)"]
+
+        subgraph ASPP_SQ ["ASPPDeformable"]
+            direction TB
+            SQA1["aspp1: _ASPPModuleDeformable\nDeformConv2d(64→256, 1×1) offset(64→2,1×1) mod(64→1,1×1)\n+ BN(256) + ReLU"]
+            SQA2["aspp_deforms.0: _ASPPModuleDeformable\nDeformConv2d(64→256, 1×1) offset(64→2) mod(64→1)\n+ BN(256) + ReLU"]
+            SQA3["aspp_deforms.1: _ASPPModuleDeformable\nDeformConv2d(64→256, 3×3) offset(64→18,3×3) mod(64→9,3×3)\n+ BN(256) + ReLU"]
+            SQA4["aspp_deforms.2: _ASPPModuleDeformable\nDeformConv2d(64→256, 7×7) offset(64→98,7×7) mod(64→49,7×7)\n+ BN(256) + ReLU"]
+            SQA5["global_avg_pool:\nAdaptiveAvgPool2d(1×1) → Conv2d(64→256,1×1) → BN(256) → ReLU"]
+            SQA6["Concat [aspp1+d0+d1+d2+gap] = 1280ch\nconv1: Conv2d(1280→64, 1×1) + BN(64) + ReLU + Dropout(0.5)\n→ 64 × 32×32"]
+            SQA1 & SQA2 & SQA3 & SQA4 & SQA5 --> SQA6
+        end
+
+        SQ_OUT["conv_out: Conv2d(64→3072, 3×3) + bn_out: BN(3072)\n→ 3072 × 32×32"]
+        SQ_IN --> ASPP_SQ --> SQ_OUT
+    end
+
+    %% ═══════════════════════════════════════════════
+    %% DECODER
+    %% ═══════════════════════════════════════════════
+    subgraph DEC ["🟢 Decoder"]
+        direction TB
+
+        IPT5["ipt_blk5: SimpleConvs\nconv1(3072→64,3×3) → conv_out(64→384,3×3)\n→ 384 × 32×32"]
+
+        CAT_D4["Concat: squeeze(3072) + ipt_blk5(384) = 3456 × 32×32"]
+
+        subgraph DB4 ["decoder_block4 — BasicDecBlk @ 32×32"]
+            D4i["conv_in: Conv2d(3456→64, 3×3) + bn_in: BN(64) + ReLU"]
+            D4a["ASPPDeformable(64→64)\n[same structure as squeeze ASPP]"]
+            D4o["conv_out: Conv2d(64→1536, 3×3) + bn_out: BN(1536)\n→ 1536 × 32×32"]
+            D4i --> D4a --> D4o
+        end
+
+        SPV4["conv_ms_spvn_4\nConv2d(1536→1, 1×1)\n▶ Aux supervision mask @ 32×32"]
+        GDT4["gdt_convs_4: Conv2d(1536→16, 3×3)+BN(16)+ReLU\ngdt_convs_pred_4: Conv2d(16→1, 1×1) → GDT prediction\ngdt_convs_attn_4: Conv2d(16→1, 1×1) → GDT attention\n▶ GDT head @ 32×32"]
+
+        LAT4["lateral_block4: BasicLatBlk\nConv2d(1536→1536, 1×1)\n@ 64×64  (applied on upsampled F4 backbone feat)"]
+
+        IPT4["ipt_blk4: SimpleConvs\nconv1(768→64,3×3) → conv_out(64→384,3×3)\n→ 384 × 64×64"]
+
+        CAT_D3["Concat: DB4↑×2(1536) + LAT4(?) + IPT4(384)\n→ 1920 × 64×64"]
+
+        subgraph DB3 ["decoder_block3 — BasicDecBlk @ 64×64"]
+            D3i["conv_in: Conv2d(1920→64, 3×3) + BN(64) + ReLU"]
+            D3a["ASPPDeformable(64→64)"]
+            D3o["conv_out: Conv2d(64→768, 3×3) + BN(768)\n→ 768 × 64×64"]
+            D3i --> D3a --> D3o
+        end
+
+        SPV3["conv_ms_spvn_3\nConv2d(768→1, 1×1)\n▶ Aux supervision mask @ 64×64"]
+        GDT3["gdt_convs_3: Conv2d(768→16, 3×3)+BN+ReLU\ngdt_convs_pred_3: 16→1 · gdt_convs_attn_3: 16→1\n▶ GDT head @ 64×64"]
+
+        LAT3["lateral_block3: BasicLatBlk\nConv2d(768→768, 1×1)\n@ 128×128  (applied on upsampled F3 backbone feat)"]
+
+        IPT3["ipt_blk3: SimpleConvs\nconv1(192→64,3×3) → conv_out(64→192,3×3)\n→ 192 × 128×128"]
+
+        CAT_D2["Concat: DB3↑×2(768) + LAT3(?) + IPT3(192)\n→ 960 × 128×128"]
+
+        subgraph DB2 ["decoder_block2 — BasicDecBlk @ 128×128"]
+            D2i["conv_in: Conv2d(960→64, 3×3) + BN(64) + ReLU"]
+            D2a["ASPPDeformable(64→64)"]
+            D2o["conv_out: Conv2d(64→384, 3×3) + BN(384)\n→ 384 × 128×128"]
+            D2i --> D2a --> D2o
+        end
+
+        SPV2["conv_ms_spvn_2\nConv2d(384→1, 1×1)\n▶ Aux supervision mask @ 128×128"]
+        GDT2["gdt_convs_2: Conv2d(384→16, 3×3)+BN+ReLU\ngdt_convs_pred_2: 16→1 · gdt_convs_attn_2: 16→1\n▶ GDT head @ 128×128"]
+
+        LAT2["lateral_block2: BasicLatBlk\nConv2d(384→384, 1×1)\n@ 256×256  (applied on upsampled F2 backbone feat)"]
+
+        IPT2["ipt_blk2: SimpleConvs\nconv1(48→64,3×3) → conv_out(64→96,3×3)\n→ 96 × 256×256"]
+
+        CAT_D1["Concat: DB2↑×2(384) + LAT2(?) + IPT2(96)\n→ 480 × 256×256"]
+
+        subgraph DB1 ["decoder_block1 — BasicDecBlk @ 256×256"]
+            D1i["conv_in: Conv2d(480→64, 3×3) + BN(64) + ReLU"]
+            D1a["ASPPDeformable(64→64)"]
+            D1o["conv_out: Conv2d(64→192, 3×3) + BN(192)\n→ 192 × 256×256"]
+            D1i --> D1a --> D1o
+        end
+
+        IPT1["ipt_blk1: SimpleConvs\nconv1(3→64,3×3) → conv_out(64→48,3×3)\n→ 48 × 1024×1024"]
+
+        CAT_FINAL["Concat: DB1↑×4(192) + IPT1(48)\n→ 240 × 1024×1024"]
+
+        COUT["conv_out1: Conv2d(240→1, 1×1)\n→ 1 × 1024×1024"]
+
+        %% Decoder internal flow
+        IPT5 --> CAT_D4
+        CAT_D4 --> DB4
+        D4o --> SPV4
+        D4o --> GDT4
+        D4o -.->|upsample ×2| LAT4
+        LAT4 --> CAT_D3
+        IPT4 --> CAT_D3
+        CAT_D3 --> DB3
+        D3o --> SPV3
+        D3o --> GDT3
+        D3o -.->|upsample ×2| LAT3
+        LAT3 --> CAT_D2
+        IPT3 --> CAT_D2
+        CAT_D2 --> DB2
+        D2o --> SPV2
+        D2o --> GDT2
+        D2o -.->|upsample ×2| LAT2
+        LAT2 --> CAT_D1
+        IPT2 --> CAT_D1
+        CAT_D1 --> DB1
+        D1o -.->|upsample ×4| CAT_FINAL
+        IPT1 --> CAT_FINAL
+        CAT_FINAL --> COUT
+    end
+
+    %% ═══════════════════════════════════════════════
+    %% OUTPUTS
+    %% ═══════════════════════════════════════════════
+    MASK(["🎯 Main Output Mask\n1 × 1024×1024"])
+    AUX(["📊 Auxiliary Outputs\nP4 @ 32×32  ·  P3 @ 64×64  ·  P2 @ 128×128\nGDT pred+attn × 3 levels"])
+
+    %% ═══════════════════════════════════════════════
+    %% TOP-LEVEL CONNECTIONS
+    %% ═══════════════════════════════════════════════
+    INPUT --> SC1
+    INPUT -.->|downsample ×2| SC2
+
+    N3 --> CONCAT
+    N2 --> CONCAT
+    N1 --> CONCAT
+    N0 --> CONCAT
+    G4 --> CONCAT
+    G3 --> CONCAT
+    G2 --> CONCAT
+    G1 --> CONCAT
+
+    CONCAT --> SQ
+    SQ_OUT --> CONCAT
+    SQ_OUT --> IPT5
+    SQ_OUT --> CAT_D4
+
+    N2 --> IPT4
+    N0 -.->|192ch @ 128×128 via scale2| IPT3
+    INPUT --> IPT1
+
+    COUT --> MASK
+    SPV4 --> AUX
+    SPV3 --> AUX
+    SPV2 --> AUX
+    GDT4 --> AUX
+    GDT3 --> AUX
+    GDT2 --> AUX
+
+    %% ═══════════════════════════════════════════════
+    %% STYLES
+    %% ═══════════════════════════════════════════════
+    classDef input fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,font-weight:500
+    classDef backbone fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+    classDef squeeze fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef decoder fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef supervision fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,font-style:italic
+    classDef output fill:#f0fdf4,stroke:#15803d,color:#14532d,font-weight:600
+    classDef concat fill:#f5f5f4,stroke:#78716c,color:#1c1917
+    classDef lateral fill:#fdf4ff,stroke:#a855f7,color:#3b0764
+
+    class INPUT,MASK input
+    class PE1,L0,L1,L2,L3,PM0,PM1,PM2,N0,N1,N2,N3,B00,B01,B10,B11,B2x,B30,B31 backbone
+    class PE2,L0b,L1b,L2b,L3b,PM0b,PM1b,PM2b,G1,G2,G3,G4 backbone
+    class SQ_IN,ASPP_SQ,SQA1,SQA2,SQA3,SQA4,SQA5,SQA6,SQ_OUT squeeze
+    class IPT5,IPT4,IPT3,IPT2,IPT1,DB4,DB3,DB2,DB1,D4i,D4a,D4o,D3i,D3a,D3o,D2i,D2a,D2o,D1i,D1a,D1o,COUT decoder
+    class SPV4,SPV3,SPV2,GDT4,GDT3,GDT2,AUX supervision
+    class CAT_D4,CAT_D3,CAT_D2,CAT_D1,CAT_FINAL,CONCAT concat
+    class LAT4,LAT3,LAT2 lateral

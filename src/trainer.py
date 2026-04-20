@@ -42,6 +42,8 @@ class Trainer:
         device,
         ckpt_dir,
         num_epochs=30,
+        phase=1,
+        resume_from=None,
         use_boundary_iou=True,
         use_wandb=False,
         wandb_project="rmbg-lineart",
@@ -52,8 +54,28 @@ class Trainer:
         self.device = device
         self.ckpt_dir = ckpt_dir
         self.num_epochs = num_epochs
-        self.best_iou = 0.0
-        self.best_boundary_iou = 0.0
+        self.phase = phase
+        self.start_epoch = 1
+
+        # Resume from checkpoint
+        if resume_from and os.path.exists(resume_from):
+            print(f"Resuming from checkpoint: {resume_from}")
+            ckpt = torch.load(resume_from, map_location=device)
+            self.model.load_state_dict(ckpt["model_state_dict"])
+            if "optimizer_state_dict" in ckpt:
+                self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            self.start_epoch = ckpt.get("epoch", 1) + 1
+            self.phase = ckpt.get("phase", phase)
+            self.best_iou = ckpt.get("val_iou", 0.0)
+            self.best_boundary_iou = ckpt.get("val_boundary_iou", 0.0)
+            print(f"  Resumed from epoch {ckpt.get('epoch', 0)}, phase {self.phase}")
+            print(
+                f"  Best IoU: {self.best_iou:.4f}, Boundary IoU: {self.best_boundary_iou:.4f}"
+            )
+        else:
+            self.best_iou = 0.0
+            self.best_boundary_iou = 0.0
+
         self.use_boundary_iou = use_boundary_iou
         self.use_wandb = use_wandb
         self.wandb_project = wandb_project
@@ -74,9 +96,21 @@ class Trainer:
             imgs = imgs.to(self.device)
             masks = masks.to(self.device)
 
+            # Check actual batch size from tensor
+            batch_size = imgs.shape[0]
+
             output = self.model(imgs)
             pred = _get_valid_pred(output)
-            loss = combined_loss(pred, masks)
+
+            # Skip SSIM loss when batch_size=1 to avoid BatchNorm/SSIM dimension error
+            if batch_size == 1:
+                from src.losses import bce_loss, iou_score
+
+                bce = bce_loss(pred, masks)
+                iou = 1 - iou_score(pred, masks)
+                loss = 90 * bce + 0.25 * iou
+            else:
+                loss = combined_loss(pred, masks)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -108,25 +142,46 @@ class Trainer:
 
         return avg_iou, avg_boundary_iou
 
-    def save_checkpoint(self, epoch, val_iou, val_boundary_iou, is_best=False):
-        checkpoint = {
+    def save_checkpoint(
+        self, epoch, val_iou, val_boundary_iou, is_best=False, phase=1, train_loss=0.0
+    ):
+        os.makedirs(self.ckpt_dir, exist_ok=True)
+
+        # Always save last model
+        last_ckpt = {
             "epoch": epoch,
+            "phase": phase,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "val_iou": val_iou,
             "val_boundary_iou": val_boundary_iou,
+            "train_loss": train_loss,
         }
+        torch.save(last_ckpt, os.path.join(self.ckpt_dir, "last_model.pth"))
 
-        os.makedirs(self.ckpt_dir, exist_ok=True)
-        torch.save(checkpoint, os.path.join(self.ckpt_dir, "last_model.pth"))
+        # Save per-epoch checkpoint
+        epoch_ckpt = {
+            "epoch": epoch,
+            "phase": phase,
+            "model_state_dict": self.model.state_dict(),
+            "val_iou": val_iou,
+            "val_boundary_iou": val_boundary_iou,
+            "train_loss": train_loss,
+        }
+        torch.save(
+            epoch_ckpt, os.path.join(self.ckpt_dir, f"phase{phase}_ep{epoch}.pt")
+        )
 
+        # Save best model if improved
         if is_best:
             torch.save(
                 self.model.state_dict(), os.path.join(self.ckpt_dir, "best_model.pth")
             )
+            print(f"  -> Saved best_model.pth (Boundary IoU: {val_boundary_iou:.4f})")
 
     def train(self, train_loader, val_loader):
-        for epoch in range(1, self.num_epochs + 1):
+        print(f"Starting training from epoch {self.start_epoch} to {self.num_epochs}")
+        for epoch in range(self.start_epoch, self.num_epochs + 1):
             train_loss = self.train_epoch(train_loader, epoch)
             val_iou, val_boundary_iou = self.validate(val_loader)
 
@@ -146,7 +201,9 @@ class Trainer:
                     self.best_iou = val_iou
                     print(f"  -> New best! IoU={self.best_iou:.4f}")
 
-            self.save_checkpoint(epoch, val_iou, val_boundary_iou, is_best)
+            self.save_checkpoint(
+                epoch, val_iou, val_boundary_iou, is_best, self.phase, train_loss
+            )
 
             if self.use_wandb:
                 self.wandb.log(
