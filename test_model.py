@@ -56,6 +56,16 @@ def preprocess_image(image_path, img_size=1024):
     return transform(img), img
 
 
+def resize_mask_to_size(mask_array, target_size, resample=Image.NEAREST):
+    """
+    Resize a mask/probability map to target PIL size (width, height).
+    mask_array is expected in [0, 1].
+    """
+    mask_uint8 = np.clip(mask_array * 255.0, 0, 255).astype(np.uint8)
+    resized = Image.fromarray(mask_uint8).resize(target_size, resample=resample)
+    return np.array(resized).astype(np.float32) / 255.0
+
+
 def predict(model, image_tensor, device="cuda"):
     img_tensor = image_tensor.unsqueeze(0).to(device)
     with torch.no_grad():
@@ -117,7 +127,10 @@ def test_model_on_data(model, data_dir, mask_dir=None, img_size=1024, threshold=
             
             img_tensor, original_img = preprocess_image(str(img_path), img_size)
             pred_mask = predict(model, img_tensor, device)
-            mask_binary = (pred_mask > threshold).astype(np.uint8) * 255
+            pred_mask_original_size = resize_mask_to_size(
+                pred_mask, original_img.size, resample=Image.BILINEAR
+            )
+            mask_binary = (pred_mask_original_size > threshold).astype(np.uint8) * 255
             
             if output_root:
                 rel_path = img_path.relative_to(data_dir)
@@ -132,7 +145,14 @@ def test_model_on_data(model, data_dir, mask_dir=None, img_size=1024, threshold=
                 
                 if mask_path.exists():
                     gt_mask = np.array(Image.open(mask_path).convert("L"))
-                    metrics = compute_metrics(pred_mask, gt_mask, threshold)
+                    pred_for_eval = pred_mask
+                    if gt_mask.shape != pred_mask.shape:
+                        pred_for_eval = resize_mask_to_size(
+                            pred_mask,
+                            (gt_mask.shape[1], gt_mask.shape[0]),
+                            resample=Image.BILINEAR,
+                        )
+                    metrics = compute_metrics(pred_for_eval, gt_mask, threshold)
                     metrics["category"] = category
                     all_metrics.append(metrics)
                     
