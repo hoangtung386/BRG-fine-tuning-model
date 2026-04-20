@@ -45,6 +45,7 @@ class Trainer:
         phase=1,
         resume_from=None,
         use_boundary_iou=True,
+        patience=4,
         use_wandb=False,
         wandb_project="rmbg-lineart",
         wandb_run_name=None,
@@ -77,6 +78,8 @@ class Trainer:
             self.best_boundary_iou = 0.0
 
         self.use_boundary_iou = use_boundary_iou
+        self.patience = patience
+        self.epochs_without_improvement = 0
         self.use_wandb = use_wandb
         self.wandb_project = wandb_project
 
@@ -104,11 +107,13 @@ class Trainer:
 
             # Skip SSIM loss when batch_size=1 to avoid BatchNorm/SSIM dimension error
             if batch_size == 1:
-                from src.losses import bce_loss, iou_score
+                from src.losses import focal_bce_loss, iou_score, dice_loss, filled_region_loss
 
-                bce = bce_loss(pred, masks)
+                bce = focal_bce_loss(pred, masks, alpha=0.75, gamma=2.0)
                 iou = 1 - iou_score(pred, masks)
-                loss = 90 * bce + 0.25 * iou
+                dice = dice_loss(pred, masks)
+                hole = filled_region_loss(pred, masks)
+                loss = bce + iou + dice + 2 * hole
             else:
                 loss = combined_loss(pred, masks)
 
@@ -194,12 +199,18 @@ class Trainer:
                 if is_best:
                     self.best_boundary_iou = val_boundary_iou
                     self.best_iou = val_iou
+                    self.epochs_without_improvement = 0
                     print(f"  -> New best! Boundary IoU={self.best_boundary_iou:.4f}")
+                else:
+                    self.epochs_without_improvement += 1
             else:
                 is_best = val_iou > self.best_iou
                 if is_best:
                     self.best_iou = val_iou
+                    self.epochs_without_improvement = 0
                     print(f"  -> New best! IoU={self.best_iou:.4f}")
+                else:
+                    self.epochs_without_improvement += 1
 
             self.save_checkpoint(
                 epoch, val_iou, val_boundary_iou, is_best, self.phase, train_loss
@@ -214,6 +225,12 @@ class Trainer:
                         "epoch": epoch,
                     }
                 )
+
+            if self.epochs_without_improvement >= self.patience:
+                print(
+                    f"Early stopping at epoch {epoch} (no improvement for {self.patience} epochs)"
+                )
+                break
 
         print(
             f"Training complete! Best IoU: {self.best_iou:.4f}, Best Boundary IoU: {self.best_boundary_iou:.4f}"
