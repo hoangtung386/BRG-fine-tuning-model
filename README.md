@@ -12,10 +12,10 @@ BRG-fine-tuning-model/
 │   ├── __init__.py
 │   ├── dataset.py       # Dataset with subfolder support
 │   ├── model.py        # Model loading & freezing
-│   ├── losses.py       # Loss functions (SSIM + BCE + IoU + Boundary IoU)
-│   ├── trainer.py     # Training loop with wandb
+│   ├── losses.py       # Losses: Focal BCE + SSIM + IoU + Dice + hole penalty
+│   ├── trainer.py     # Training loop with wandb + early stopping
 │   ├── utils.py      # Utilities
-│   └── visualization.py  # Visualization
+│   └── visualization.py  # Visualization + optional hole filling
 ├── data/                # Dataset (training)
 ├── test_data/           # Test data for evaluation
 ├── test_output/        # Predicted masks output
@@ -47,7 +47,7 @@ test_data/
 If you have ground truth masks for metrics computation:
 
 ```
-test_output/
+test_masks/
 ├── <category1>/         # Same structure as test_data
 │   ├── image001.png    # Binary mask (0 or 255)
 │   ├── image002.png
@@ -65,11 +65,13 @@ After training, download `best_model.pth` from Google Drive to project root:
 ## Features
 
 - **IMG_SIZE**: 1024 (optimal for RMBG-2.0)
-- **Loss**: 10×SSIM + 90×BCE + 0.25×IoU (BiRefNet formula)
+- **Loss**: Balanced objective = `5×SSIM + 1×Focal BCE + 1×IoU loss + 1×Dice loss + 2×hole loss`
 - **Optimizer**: AdamW with trainable params only
 - **Freezing**: Freeze encoder for faster training
 - **Augmentation**: Random erode/dilate, brightness/contrast
 - **Metric**: Boundary IoU (5px edge) for best model selection
+- **Early stopping**: Patience-based stop to reduce overfitting (default patience=4)
+- **Post-processing**: Optional hole filling for cleaner binary masks in visualization/inference helpers
 - **WandB**: Integrated logging
 
 ## Configuration
@@ -90,11 +92,19 @@ After training, download checkpoint and test:
 python test_model.py --checkpoint best_model.pth --data_dir test_data --output_dir test_output
 
 # Test with ground truth masks for metrics
-python test_model.py --checkpoint best_model.pth --data_dir test_data --mask_dir test_output --output_dir test_output
+python test_model.py --checkpoint best_model.pth --data_dir test_data --mask_dir test_masks --output_dir test_output
 
 # Visualize samples
 python test_model.py --checkpoint best_model.pth --data_dir test_data --visualize
 ```
+
+Output preserves the same nested folder structure as input `data_dir`, with filenames saved as `*_mask.png`.
+
+## Training Notes
+
+- Phase 3 full fine-tuning uses lower learning rates to stabilize training:
+  - Decoder LR: `5e-5`
+  - Encoder LR: `1e-6`
 
 ### Test Output Metrics
 
