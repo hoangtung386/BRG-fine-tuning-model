@@ -65,9 +65,9 @@ After training, download `best_model.pth` from Google Drive to project root:
 ## Features
 
 - **IMG_SIZE**: 1024 (optimal for RMBG-2.0)
-- **Loss**: Balanced objective = `5×SSIM + 1×Focal BCE + 1×IoU loss + 1×Dice loss + 2×hole loss`
+- **Loss**: Balanced objective = `0×SSIM + 1×Focal BCE + 1×IoU loss + 1×Dice loss + 2×hole loss`
 - **Optimizer**: AdamW with trainable params only
-- **Freezing**: Freeze encoder for faster training
+- **Freezing**: Progressive unfreezing (`patch_embed + norms` -> `stage 0/1` -> deeper blocks)
 - **Augmentation**: Random erode/dilate, brightness/contrast
 - **Metric**: Boundary IoU (5px edge) for best model selection
 - **Early stopping**: Patience-based stop to reduce overfitting (default patience=4)
@@ -80,7 +80,7 @@ Edit `config/__init__.py`:
 - `IMG_SIZE`: Input image size (default: 1024)
 - `BATCH_SIZE`: Batch size (default: 4)
 - `NUM_EPOCHS`: Training epochs (default: 30)
-- `FREEZE_ENCODER`: Freeze encoder (default: True)
+- `FREEZE_ENCODER`: Keep encoder trainable by default (default: False)
 - `CKPT_DIR`: Checkpoint save path
 
 ## Test Trained Model
