@@ -3,6 +3,7 @@ import torch
 from tqdm import tqdm
 
 from src.losses import combined_loss, iou_score, boundary_iou
+from src.utils import find_largest_tensor_recursive
 
 
 def _get_valid_pred(output):
@@ -10,25 +11,7 @@ def _get_valid_pred(output):
     if output is None:
         raise ValueError("Model output is None")
 
-    def find_largest_tensor(obj, best_tensor=None, best_size=0):
-        """Recursively find tensor with largest spatial size"""
-        if obj is None:
-            return best_tensor, best_size
-        if isinstance(obj, torch.Tensor):
-            # Check spatial dimensions (H, W) - last 2 dims
-            if obj.dim() >= 4:
-                size = obj.shape[-2] * obj.shape[-1]
-                if size > best_size:
-                    return obj, size
-            return best_tensor, best_size
-        if isinstance(obj, (list, tuple)):
-            for item in obj:
-                best_tensor, best_size = find_largest_tensor(
-                    item, best_tensor, best_size
-                )
-        return best_tensor, best_size
-
-    pred, size = find_largest_tensor(output)
+    pred, size = find_largest_tensor_recursive(output)
     if pred is None:
         raise ValueError("No valid tensor in model output")
     return pred
