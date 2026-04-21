@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torchvision.utils import make_grid
 
+from src.utils import denormalize, compute_metrics_batch
+
 
 def fill_holes(binary_mask):
     """Fill enclosed holes in a binary mask."""
@@ -20,12 +22,6 @@ def predict_with_fill(model, img_tensor, device="cuda", threshold=0.5):
         pred = torch.sigmoid(pred[0, 0]).cpu().numpy()
     binary = pred > threshold
     return fill_holes(binary)
-
-
-def denormalize(tensor, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
-    mean = torch.tensor(mean).view(-1, 1, 1)
-    std = torch.tensor(std).view(-1, 1, 1)
-    return tensor * std + mean
 
 
 def visualize_prediction(model, dataset, idx=0, device="cuda"):
@@ -96,27 +92,6 @@ def visualize_batch(model, dataloader, device="cuda", n_images=4):
 
     plt.tight_layout()
     plt.show()
-
-
-def compute_metrics_batch(model, dataloader, device="cuda"):
-    from src.losses import iou_score
-
-    model.eval()
-    total_iou = 0
-    total_samples = 0
-
-    with torch.no_grad():
-        for imgs, masks in dataloader:
-            imgs = imgs.to(device)
-            masks = masks.to(device)
-
-            preds = model(imgs)[-1]
-            iou = iou_score(preds, masks)
-
-            total_iou += iou.item() * imgs.size(0)
-            total_samples += imgs.size(0)
-
-    return total_iou / total_samples
 
 
 def visualize_training_progress(history, save_path=None):
