@@ -1,6 +1,6 @@
 class Config:
-    IMG_SIZE = 1024
-    BATCH_SIZE = 4
+    IMG_SIZE = 256
+    BATCH_SIZE = 8
     NUM_WORKERS = 4
     NUM_EPOCHS = 30
     LEARNING_RATE = 2e-5
@@ -10,10 +10,10 @@ class Config:
 
     MODEL_NAME = "briaai/RMBG-2.0"
 
-    DATASET_PATH = "/content/drive/MyDrive/Projects/dataset_line-art"
-    MASK_PATH = "/content/drive/MyDrive/Projects/ground_truth_anime"
+    DATASET_PATH = "dataset_lie_art/images"
+    MASK_PATH = "dataset_lie_art/masks"
 
-    CKPT_DIR = "/content/drive/MyDrive/rmbg_checkpoints"
+    CKPT_DIR = "checkpoints"
     TRAIN_RATIO = 0.9
 
     USE_GRADIENT_CHECKPOINTING = False

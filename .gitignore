@@ -48,6 +48,7 @@ data/
 test_data/
 test_output/
 wandb/
+dataset_lie_art/
 
 # Model checkpoints
 best_model.pth
