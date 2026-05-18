@@ -1,5 +1,20 @@
 import torch
+import torch.nn as nn
 from transformers import AutoModelForImageSegmentation
+
+
+def _fix_global_avg_pool_bn(model):
+    """Replace BatchNorm2d in ASPP global_avg_pool with Identity.
+
+    The ASPP module's global_avg_pool produces 1x1 spatial features.
+    BatchNorm on 1x1 requires >1 spatial element in PyTorch 2.x.
+    """
+    for _name, module in model.named_modules():
+        if isinstance(module, nn.Sequential):
+            for i, child in enumerate(module):
+                if isinstance(child, nn.BatchNorm2d):
+                    module[i] = nn.Identity()
+    return model
 
 
 def reinitialize_patch_embed_for_lineart(model):
@@ -23,6 +38,7 @@ def load_model(
         model_name, trust_remote_code=True
     )
     reinitialize_patch_embed_for_lineart(model)
+    _fix_global_avg_pool_bn(model)
 
     if use_gradient_checkpointing and hasattr(model, "gradient_checkpointing_enable"):
         model.gradient_checkpointing_enable()
